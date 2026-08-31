@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Northstar Support — LISTEN/NOTIFY Lab</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #0b1020;
+        color: #e8ecf4;
+      }
+      main {
+        width: min(920px, calc(100% - 32px));
+        margin: 48px auto;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: start;
+        margin-bottom: 28px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 30px;
+      }
+      p {
+        color: #9da9bc;
+        margin: 0;
+        line-height: 1.5;
+      }
+      .badge {
+        white-space: nowrap;
+        padding: 8px 12px;
+        border: 1px solid #28344c;
+        border-radius: 999px;
+        color: #a8d5b5;
+        background: #111a2c;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+      .ticket {
+        border: 1px solid #24304a;
+        border-radius: 14px;
+        padding: 18px;
+        background: #111827;
+      }
+      .ticket small {
+        color: #718096;
+      }
+      .ticket h2 {
+        margin: 10px 0 18px;
+        font-size: 17px;
+        min-height: 42px;
+      }
+      select {
+        width: 100%;
+        background: #0b1020;
+        color: #e8ecf4;
+        border: 1px solid #34415d;
+        border-radius: 9px;
+        padding: 10px;
+      }
+      .meta {
+        margin-top: 24px;
+        padding: 16px;
+        background: #0e1628;
+        border: 1px solid #24304a;
+        border-radius: 12px;
+        font:
+          13px/1.6 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #9fb0ca;
+      }
+      .flash {
+        animation: flash 0.8s ease;
+      }
+      @keyframes flash {
+        0% {
+          outline: 2px solid #77d394;
+        }
+        100% {
+          outline: 2px solid transparent;
+        }
+      }
+      @media (max-width: 720px) {
+        header {
+          display: block;
+        }
+        .badge {
+          display: inline-block;
+          margin-top: 16px;
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Northstar Support</h1>
+          <p>
+            Dashboard realtime: PostgreSQL LISTEN/NOTIFY → API instance → SSE →
+            browser.
+          </p>
+        </div>
+        <div id="connection" class="badge">SSE conectando…</div>
+      </header>
+
+      <section id="tickets" class="grid"></section>
+
+      <div class="meta">
+        <div>GET /tickets atendido por: <strong id="loaded-by">—</strong></div>
+        <div>Último PATCH atendido por: <strong id="patched-by">—</strong></div>
+        <div>
+          Último evento SSE entregue por: <strong id="delivered-by">—</strong>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const statuses = ["waiting", "in_progress", "resolved"];
+      const labels = {
+        waiting: "Waiting",
+        in_progress: "In Progress",
+        resolved: "Resolved",
+      };
+      const tickets = new Map();
+
+      function renderTicket(ticket, flash = false) {
+        tickets.set(ticket.id, ticket);
+        let card = document.querySelector(`[data-ticket-id="${ticket.id}"]`);
+        if (!card) {
+          card = document.createElement("article");
+          card.className = "ticket";
+          card.dataset.ticketId = ticket.id;
+          document.querySelector("#tickets").append(card);
+        }
+
+        card.innerHTML = `
+          <small>Ticket #${ticket.id}</small>
+          <h2>${escapeHtml(ticket.title)}</h2>
+          <select aria-label="Status do ticket ${ticket.id}">
+            ${statuses.map((status) => `<option value="${status}" ${status === ticket.status ? "selected" : ""}>${labels[status]}</option>`).join("")}
+          </select>
+        `;
+
+        card
+          .querySelector("select")
+          .addEventListener("change", async (event) => {
+            const response = await fetch(`/tickets/${ticket.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ status: event.target.value }),
+            });
+            const data = await response.json();
+            document.querySelector("#patched-by").textContent =
+              data.handledBy ?? "erro";
+          });
+
+        if (flash) {
+          card.classList.remove("flash");
+          void card.offsetWidth;
+          card.classList.add("flash");
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      async function loadTickets() {
+        const response = await fetch("/tickets");
+        const data = await response.json();
+        document.querySelector("#loaded-by").textContent = data.instance;
+        data.tickets.forEach((ticket) => renderTicket(ticket));
+      }
+
+      const events = new EventSource("/events");
+
+      events.addEventListener("connected", (event) => {
+        const data = JSON.parse(event.data);
+        document.querySelector("#connection").textContent =
+          `SSE via ${data.instance}`;
+      });
+
+      events.addEventListener("ticket.changed", (event) => {
+        const data = JSON.parse(event.data);
+        document.querySelector("#delivered-by").textContent = data.deliveredBy;
+        renderTicket(data.ticket, true);
+      });
+
+      events.onerror = () => {
+        document.querySelector("#connection").textContent = "SSE reconectando…";
+      };
+
+      loadTickets().catch(console.error);
+    </script>
+  </body>
+</html>
