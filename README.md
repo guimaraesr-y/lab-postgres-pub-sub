@@ -30,11 +30,11 @@ Em vez de adicionar o Redis, usamos o PostgreSQL como coordenador:
                                          NOTIFY '1042'
                                                 │
                                  ┌──────────────┼──────────────┐
-                                 ▼              ▼              ▼
+                                 ▼             ▼              ▼
                             ┌─────────┐     ┌─────────┐     ┌─────────┐
                             │  API-1  │     │  API-2  │     │  API-3  │
                             └────┬────┘     └────┬────┘     └────┬────┘
-                                 │ SSE          │ SSE           │ SSE
+                                 │ SSE           │ SSE           │ SSE
                                  ▼              ▼               ▼
                              Browsers       Browsers        Browsers
 
